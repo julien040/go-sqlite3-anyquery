@@ -1,4 +1,4 @@
-module github.com/mattn/go-sqlite3
+module github.com/julien040/go-sqlite3-anyquery
 
 go 1.19
 

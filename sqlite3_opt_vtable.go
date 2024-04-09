@@ -467,7 +467,7 @@ func goVBestIndex(pVTab unsafe.Pointer, icp unsafe.Pointer) *C.char {
 	for i := range slice {
 		if res.Used[i] {
 			slice[i].argvIndex = C.int(index)
-			slice[i].omit = C.uchar(1)
+			slice[i].omit = C.uchar(0) // We don't want to omit this constraint
 			index++
 		}
 	}
