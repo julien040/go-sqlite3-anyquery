@@ -304,7 +304,14 @@ const (
 	OpLIKE          = 65 /* 3.10.0 and later only */
 	OpGLOB          = 66 /* 3.10.0 and later only */
 	OpREGEXP        = 67 /* 3.10.0 and later only */
-	OpScanUnique    = 1  /* Scan visits at most 1 row */
+	OpNEQ           = 68
+	OpISNOT         = 69
+	OpISNOTNULL     = 70
+	OpISNULL        = 71
+	OpIsS           = 72
+	OpLIMIT         = 73
+	OpOFFSET        = 74
+	OpScanUnique    = 1 /* Scan visits at most 1 row */
 )
 
 // InfoConstraint give information of constraint.
