@@ -473,8 +473,21 @@ func goVBestIndex(pVTab unsafe.Pointer, icp unsafe.Pointer) *C.char {
 	index := 1
 	for i := range slice {
 		if res.Used[i] {
+			// The default library omit value is 1
+			// for used constraints
+			// But anyquery uses constraints as a hint,
+			// so it's still need SQLite to evaluate the constraints.
+			// Therefore, we set omit to 0
+			omit := C.uchar(0)
+
+			// However, OFFSET is a special case because we can't offset the rows twice
+			// Therefore, if an offset is used, we set omit to 1
+			if csts[i].Op == OpOFFSET {
+				omit = C.uchar(1)
+			}
+
 			slice[i].argvIndex = C.int(index)
-			slice[i].omit = C.uchar(0) // We don't want to omit this constraint
+			slice[i].omit = omit
 			index++
 		}
 	}
