@@ -295,23 +295,17 @@ type Op uint8
 
 // Op mean identity of operations.
 const (
-	OpEQ         Op = 2
-	OpGT            = 4
-	OpLE            = 8
-	OpLT            = 16
-	OpGE            = 32
-	OpMATCH         = 64
-	OpLIKE          = 65 /* 3.10.0 and later only */
-	OpGLOB          = 66 /* 3.10.0 and later only */
-	OpREGEXP        = 67 /* 3.10.0 and later only */
-	OpNEQ           = 68
-	OpISNOT         = 69
-	OpISNOTNULL     = 70
-	OpISNULL        = 71
-	OpIsS           = 72
-	OpLIMIT         = 73
-	OpOFFSET        = 74
-	OpScanUnique    = 1 /* Scan visits at most 1 row */
+	OpEQ     Op = 2
+	OpGT        = 4
+	OpLE        = 8
+	OpLT        = 16
+	OpGE        = 32
+	OpMATCH     = 64
+	OpLIKE      = 65 /* 3.10.0 and later only */
+	OpGLOB      = 66 /* 3.10.0 and later only */
+	OpREGEXP    = 67 /* 3.10.0 and later only */
+	OpLIMIT     = 73
+	OpOFFSET    = 74
 )
 
 // InfoConstraint give information of constraint.
