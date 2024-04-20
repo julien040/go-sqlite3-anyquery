@@ -50,7 +50,13 @@ func (c *SQLiteConn) LoadExtension(lib string, entry string) error {
 		return errors.New(C.GoString(C.sqlite3_errmsg(c.db)))
 	}
 
-	if err := c.loadExtension(lib, &entry); err != nil {
+	var entrypoint *string = nil
+
+	if len(entry) > 0 {
+		entrypoint = &entry
+	}
+
+	if err := c.loadExtension(lib, entrypoint); err != nil {
 		C.sqlite3_enable_load_extension(c.db, 0)
 		return err
 	}
