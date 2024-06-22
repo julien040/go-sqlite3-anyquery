@@ -264,11 +264,17 @@ static int _sqlite3_create_module(sqlite3 *db, const char *zName, uintptr_t pCli
 static int _sqlite3_create_module_eponymous_only(sqlite3 *db, const char *zName, uintptr_t pClientData) {
   return sqlite3_create_module_v2(db, zName, &goModuleEponymousOnly, (void*) pClientData, goMDestroy);
 }
+
+static int _sqlite3_drop_modules(sqlite3 *db, const char **azKeep) {
+  return sqlite3_drop_modules(db, azKeep);
+}
 */
 import "C"
 
 import (
+	"database/sql/driver"
 	"fmt"
+	"io"
 	"math"
 	"reflect"
 	"unsafe"
@@ -731,5 +737,61 @@ func (c *SQLiteConn) CreateModule(moduleName string, module Module) error {
 		}
 		return nil
 	}
+	return nil
+}
+
+// Drop a module by its name
+func (c *SQLiteConn) DropModule(moduleName string) error {
+	// SQLite doesn't provide a way to drop a module by name.
+	// However, SQLite has a method sqlite3_drop_modules
+	// that drops all the modules except the ones in a specified list.
+	//
+	// This function uses this feature. It queries all the modules,
+	// add them to the skip list, and then calls sqlite3_drop_modules.
+
+	// Get all the module names
+	var keep []*C.char
+	rows, err := c.Query("PRAGMA module_list;", []driver.Value{})
+	if err != nil {
+		return err
+	}
+
+	moduleNameQuery := make([]driver.Value, 1)
+	for {
+		clear(moduleNameQuery)
+		err = rows.Next(moduleNameQuery)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		if len(moduleNameQuery) != 1 {
+			return fmt.Errorf("unexpected number of columns in pragma_module_list (expected 1, got %d)", len(moduleNameQuery))
+		}
+
+		name, ok := moduleNameQuery[0].(string)
+		if !ok {
+			return fmt.Errorf("unexpected type of column in pragma_module_list (expected string, got %T)", moduleNameQuery[0])
+		}
+
+		// Add all module except the one we want to drop
+		if name != moduleName {
+			keep = append(keep, C.CString(name))
+		}
+	}
+	rows.Close()
+
+	// As specified in the documentation, the last element of the array must be NULL
+	keep = append(keep, nil)
+
+	// Drop all the modules except the ones in the keep list
+	rv := C._sqlite3_drop_modules(c.db, &keep[0])
+
+	if rv != C.SQLITE_OK {
+		return c.lastError()
+	}
+
 	return nil
 }
