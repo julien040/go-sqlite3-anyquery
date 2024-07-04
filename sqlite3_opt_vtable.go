@@ -637,7 +637,9 @@ func goVUpdate(pVTab unsafe.Pointer, argc C.int, argv **C.sqlite3_value, pRowid 
 			}
 
 		case argc > 1:
-			err = v.Update(vals[1], vals[2:])
+			// In case of an update that changes the rowid, the rowid is passed as the first argument
+			// If we need to access the new rowid, we can just find it in vals[2:]
+			err = v.Update(vals[0], vals[2:])
 		}
 	}
 
