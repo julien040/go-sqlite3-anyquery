@@ -66,17 +66,10 @@ static inline int cXConnect(sqlite3 *db, void *pAux, int argc, const char *const
 	return cXInit(db, pAux, argc, argv, ppVTab, pzErr, 0);
 }
 
-char* goVBestIndex(void *pVTab, void *icp);
+int goVBestIndex(void *pVTab, void *icp);
 
 static inline int cXBestIndex(sqlite3_vtab *pVTab, sqlite3_index_info *info) {
-	char *pzErr = goVBestIndex(((goVTab*)pVTab)->vTab, info);
-	if (pzErr) {
-		if (pVTab->zErrMsg)
-			sqlite3_free(pVTab->zErrMsg);
-		pVTab->zErrMsg = pzErr;
-		return SQLITE_ERROR;
-	}
-	return SQLITE_OK;
+	return goVBestIndex(((goVTab*)pVTab)->vTab, info);
 }
 
 char* goVRelease(void *pVTab, int isDestroy);
@@ -454,16 +447,17 @@ func goVOpen(pVTab unsafe.Pointer, pzErr **C.char) C.uintptr_t {
 }
 
 //export goVBestIndex
-func goVBestIndex(pVTab unsafe.Pointer, icp unsafe.Pointer) *C.char {
+func goVBestIndex(pVTab unsafe.Pointer, icp unsafe.Pointer) C.int {
 	vt := lookupHandle(pVTab).(*sqliteVTab)
 	info := (*C.sqlite3_index_info)(icp)
 	csts := constraints(info)
 	res, err := vt.vTab.BestIndex(csts, orderBys(info))
-	if err != nil {
-		return mPrintf("%s", err.Error())
+	if err == ErrConstraint {
+		return C.int(ErrConstraint)
 	}
+
 	if len(res.Used) != len(csts) {
-		return mPrintf("Result.Used != expected value", "")
+		return C.SQLITE_ERROR
 	}
 
 	// Get a pointer to constraint_usage struct so we can update in place.
@@ -517,7 +511,7 @@ func goVBestIndex(pVTab unsafe.Pointer, icp unsafe.Pointer) *C.char {
 	info.estimatedCost = C.double(res.EstimatedCost)
 	info.estimatedRows = C.sqlite3_int64(res.EstimatedRows)
 
-	return nil
+	return 0
 }
 
 //export goVClose
