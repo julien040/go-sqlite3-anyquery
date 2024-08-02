@@ -43,6 +43,19 @@ func (c *SQLiteConn) loadExtensions(extensions []string) error {
 	return nil
 }
 
+// EnableExtension enables the extension loading.
+func (c *SQLiteConn) EnableExtension(enable bool) error {
+	flag := 0
+	if enable {
+		flag = 1
+	}
+	rv := C.sqlite3_enable_load_extension(c.db, C.int(flag))
+	if rv != C.SQLITE_OK {
+		return errors.New(C.GoString(C.sqlite3_errmsg(c.db)))
+	}
+	return nil
+}
+
 // LoadExtension load the sqlite3 extension.
 func (c *SQLiteConn) LoadExtension(lib string, entry string) error {
 	rv := C.sqlite3_enable_load_extension(c.db, 1)
