@@ -163,10 +163,15 @@ static inline int cXEof(sqlite3_vtab_cursor *pCursor) {
 	return goVEof(((goVTabCursor*)pCursor)->vTabCursor);
 }
 
-char* goVColumn(void *pCursor, void *cp, int col);
+char* goVColumn(void *pCursor, void *cp, int col, int nochange);
 
 static int cXColumn(sqlite3_vtab_cursor *pCursor, sqlite3_context *ctx, int i) {
-	char *pzErr = goVColumn(((goVTabCursor*)pCursor)->vTabCursor, ctx, i);
+	// Check if int sqlite3_vtab_nochange(sqlite3_context*) returns 1
+	// If it does, warn goVColumn that the value has not changed
+	int nochange = sqlite3_vtab_nochange(ctx);
+
+	char *pzErr = goVColumn(((goVTabCursor*)pCursor)->vTabCursor, ctx, i, nochange);
+
 	if (pzErr) {
 		return setErrMsg(pCursor, pzErr);
 	}
@@ -185,8 +190,50 @@ static int cXRowid(sqlite3_vtab_cursor *pCursor, sqlite3_int64 *pRowid) {
 
 char* goVUpdate(void *pVTab, int argc, sqlite3_value **argv, sqlite3_int64 *pRowid);
 
+int sqlite3_vtab_nochange(sqlite3_context*);
+int sqlite3_value_nochange(sqlite3_value*);
+
 static int cXUpdate(sqlite3_vtab *pVTab, int argc, sqlite3_value **argv, sqlite3_int64 *pRowid) {
 	char *pzErr = goVUpdate(((goVTab*)pVTab)->vTab, argc, argv, pRowid);
+	if (pzErr) {
+		if (pVTab->zErrMsg)
+			sqlite3_free(pVTab->zErrMsg);
+		pVTab->zErrMsg = pzErr;
+		return SQLITE_ERROR;
+	}
+	return SQLITE_OK;
+}
+
+char * goVBegin(void *pVTab);
+
+static int cXBegin(sqlite3_vtab *pVTab) {
+	char *pzErr = goVBegin(((goVTab*)pVTab)->vTab);
+	if (pzErr) {
+		if (pVTab->zErrMsg)
+			sqlite3_free(pVTab->zErrMsg);
+		pVTab->zErrMsg = pzErr;
+		return SQLITE_ERROR;
+	}
+	return SQLITE_OK;
+}
+
+char * goVCommit(void *pVTab);
+
+static int cXCommit(sqlite3_vtab *pVTab) {
+	char *pzErr = goVCommit(((goVTab*)pVTab)->vTab);
+	if (pzErr) {
+		if (pVTab->zErrMsg)
+			sqlite3_free(pVTab->zErrMsg);
+		pVTab->zErrMsg = pzErr;
+		return SQLITE_ERROR;
+	}
+	return SQLITE_OK;
+}
+
+char * goVRollback(void *pVTab);
+
+static int cXRollback(sqlite3_vtab *pVTab) {
+	char *pzErr = goVRollback(((goVTab*)pVTab)->vTab);
 	if (pzErr) {
 		if (pVTab->zErrMsg)
 			sqlite3_free(pVTab->zErrMsg);
@@ -251,6 +298,32 @@ static sqlite3_module goModuleEponymousOnly = {
 	0	                     // xRollbackTo
 };
 
+static sqlite3_module goModuleTransaction = {
+	0,                       // iVersion
+	cXCreate,                // xCreate - create a table
+	cXConnect,               // xConnect - connect to an existing table
+	cXBestIndex,             // xBestIndex - Determine search strategy
+	cXDisconnect,            // xDisconnect - Disconnect from a table
+	cXDestroy,               // xDestroy - Drop a table
+	cXOpen,                  // xOpen - open a cursor
+	cXClose,                 // xClose - close a cursor
+	cXFilter,                // xFilter - configure scan constraints
+	cXNext,                  // xNext - advance a cursor
+	cXEof,                   // xEof
+	cXColumn,                // xColumn - read data
+	cXRowid,                 // xRowid - read data
+	cXUpdate,                // xUpdate - write data
+	cXBegin,                 // xBegin - begin transaction
+	0,                       // xSync - sync transaction
+	cXCommit,                // xCommit - commit transaction
+	cXRollback,              // xRollback - rollback transaction
+	0,                       // xFindFunction - function overloading
+	0,                       // xRename - rename the table
+	0,                       // xSavepoint
+	0,                       // xRelease
+	0	                     // xRollbackTo
+};
+
 void goMDestroy(void*);
 
 static int _sqlite3_create_module(sqlite3 *db, const char *zName, uintptr_t pClientData) {
@@ -261,9 +334,14 @@ static int _sqlite3_create_module_eponymous_only(sqlite3 *db, const char *zName,
   return sqlite3_create_module_v2(db, zName, &goModuleEponymousOnly, (void*) pClientData, goMDestroy);
 }
 
+static int _sqlite3_create_module_transaction(sqlite3 *db, const char *zName, uintptr_t pClientData) {
+  return sqlite3_create_module_v2(db, zName, &goModuleTransaction, (void*) pClientData, goMDestroy);
+}
+
 static int _sqlite3_drop_modules(sqlite3 *db, const char **azKeep) {
   return sqlite3_drop_modules(db, azKeep);
 }
+
 */
 import "C"
 
@@ -283,13 +361,15 @@ type sqliteModule struct {
 }
 
 type sqliteVTab struct {
-	module *sqliteModule
-	vTab   VTab
+	module        *sqliteModule
+	vTab          VTab
+	partialUpdate bool
 }
 
 type sqliteVTabCursor struct {
-	vTab       *sqliteVTab
-	vTabCursor VTabCursor
+	vTab          *sqliteVTab
+	vTabCursor    VTabCursor
+	partialUpdate bool
 }
 
 // Op is type of operations.
@@ -413,7 +493,11 @@ func goMInit(db, pClientData unsafe.Pointer, argc C.int, argv **C.char, pzErr **
 		*pzErr = mPrintf("%s", err.Error())
 		return 0
 	}
-	vt := sqliteVTab{m, vTab}
+	partialUpdate := false
+	if up, ok := vTab.(VTabUpdater); ok {
+		partialUpdate = up.PartialUpdate()
+	}
+	vt := sqliteVTab{m, vTab, partialUpdate}
 	*pzErr = nil
 	return C.uintptr_t(uintptr(newHandle(m.c, &vt)))
 }
@@ -441,7 +525,7 @@ func goVOpen(pVTab unsafe.Pointer, pzErr **C.char) C.uintptr_t {
 		*pzErr = mPrintf("%s", err.Error())
 		return 0
 	}
-	vtc := sqliteVTabCursor{vt, vTabCursor}
+	vtc := sqliteVTabCursor{vt, vTabCursor, vt.partialUpdate}
 	*pzErr = nil
 	return C.uintptr_t(uintptr(newHandle(vt.module.c, &vtc)))
 }
@@ -570,9 +654,15 @@ func goVEof(pCursor unsafe.Pointer) C.int {
 }
 
 //export goVColumn
-func goVColumn(pCursor, cp unsafe.Pointer, col C.int) *C.char {
+func goVColumn(pCursor, cp unsafe.Pointer, col C.int, nochange C.int) *C.char {
 	vtc := lookupHandle(pCursor).(*sqliteVTabCursor)
 	c := (*SQLiteContext)(cp)
+	// When no change is set, it means we are in an update
+	// and the column will not change.
+	// Therefore, we can skip the column call
+	if int(nochange) == 1 && vtc.partialUpdate {
+		return nil
+	}
 	err := vtc.vTabCursor.Column(c, int(col))
 	if err != nil {
 		return mPrintf("%s", err.Error())
@@ -634,16 +724,64 @@ func goVUpdate(pVTab unsafe.Pointer, argc C.int, argv **C.sqlite3_value, pRowid 
 			}
 
 		case argc > 1:
+			// We'll call sqlite3_value_nochange for each col
+			// to ensure that the column is actually being updated
+			// If not, we'll replace the value with nil
+			// to indicate that the column should not be updated
+			for i := 2; i < int(argc); i++ {
+				if C.sqlite3_value_nochange(args[i]) == 1 {
+					vals[i] = nil
+				}
+			}
+
 			// In case of an update that changes the rowid, the rowid is passed as the first argument
 			// If we need to access the new rowid, we can just find it in vals[2:]
 			err = v.Update(vals[0], vals[2:])
 		}
+	} else {
+		err = fmt.Errorf("virtual %s table %sis not updatable", vt.module.name, tname)
 	}
 
 	if err != nil {
 		return mPrintf("%s", err.Error())
 	}
 
+	return nil
+}
+
+//export goVBegin
+func goVBegin(pVTab unsafe.Pointer) *C.char {
+	vt := lookupHandle(pVTab).(*sqliteVTab)
+	if v, ok := vt.vTab.(VTabTransaction); ok {
+		err := v.Begin()
+		if err != nil {
+			return mPrintf("%s", err.Error())
+		}
+	}
+	return nil
+}
+
+//export goVCommit
+func goVCommit(pVTab unsafe.Pointer) *C.char {
+	vt := lookupHandle(pVTab).(*sqliteVTab)
+	if v, ok := vt.vTab.(VTabTransaction); ok {
+		err := v.Commit()
+		if err != nil {
+			return mPrintf("%s", err.Error())
+		}
+	}
+	return nil
+}
+
+//export goVRollback
+func goVRollback(pVTab unsafe.Pointer) *C.char {
+	vt := lookupHandle(pVTab).(*sqliteVTab)
+	if v, ok := vt.vTab.(VTabTransaction); ok {
+		err := v.Rollback()
+		if err != nil {
+			return mPrintf("%s", err.Error())
+		}
+	}
 	return nil
 }
 
@@ -665,6 +803,20 @@ type EponymousOnlyModule interface {
 	EponymousOnlyModule()
 }
 
+// TransactionModule is a "virtual table module" (as above), but
+// for defining virtual tables that support transactions.
+type TransactionModule interface {
+	Module
+	TransactionModule()
+}
+
+type VTabTransaction interface {
+	VTab
+	Begin() error
+	Commit() error
+	Rollback() error
+}
+
 // VTab describes a particular instance of the virtual table.
 // See: http://sqlite.org/c3ref/vtab.html
 type VTab interface {
@@ -682,9 +834,11 @@ type VTab interface {
 // deleted.
 // See: https://sqlite.org/vtab.html#xupdate
 type VTabUpdater interface {
+	VTab
 	Delete(any) error
 	Insert(any, []any) (int64, error)
 	Update(any, []any) error
+	PartialUpdate() bool
 }
 
 // VTabCursor describes cursors that point into the virtual table and are used
@@ -723,6 +877,13 @@ func (c *SQLiteConn) CreateModule(moduleName string, module Module) error {
 	defer C.free(unsafe.Pointer(mname))
 	udm := sqliteModule{c, moduleName, module}
 	switch module.(type) {
+	case TransactionModule:
+		rv := C._sqlite3_create_module_transaction(c.db, mname, C.uintptr_t(uintptr(newHandle(c, &udm))))
+		if rv != C.SQLITE_OK {
+			return c.lastError()
+		}
+		return nil
+
 	case EponymousOnlyModule:
 		rv := C._sqlite3_create_module_eponymous_only(c.db, mname, C.uintptr_t(uintptr(newHandle(c, &udm))))
 		if rv != C.SQLITE_OK {
