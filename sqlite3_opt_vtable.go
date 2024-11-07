@@ -66,10 +66,10 @@ static inline int cXConnect(sqlite3 *db, void *pAux, int argc, const char *const
 	return cXInit(db, pAux, argc, argv, ppVTab, pzErr, 0);
 }
 
-int goVBestIndex(void *pVTab, void *icp);
+int goVBestIndex(void *pVTab, void *icp, char **pzErr);
 
 static inline int cXBestIndex(sqlite3_vtab *pVTab, sqlite3_index_info *info) {
-	return goVBestIndex(((goVTab*)pVTab)->vTab, info);
+	return goVBestIndex(((goVTab*)pVTab)->vTab, info, &(pVTab->zErrMsg));
 }
 
 char* goVRelease(void *pVTab, int isDestroy);
@@ -531,13 +531,21 @@ func goVOpen(pVTab unsafe.Pointer, pzErr **C.char) C.uintptr_t {
 }
 
 //export goVBestIndex
-func goVBestIndex(pVTab unsafe.Pointer, icp unsafe.Pointer) C.int {
+func goVBestIndex(pVTab unsafe.Pointer, icp unsafe.Pointer, pzErr **C.char) C.int {
 	vt := lookupHandle(pVTab).(*sqliteVTab)
 	info := (*C.sqlite3_index_info)(icp)
 	csts := constraints(info)
 	res, err := vt.vTab.BestIndex(csts, orderBys(info))
 	if err == ErrConstraint {
 		return C.int(ErrConstraint)
+	}
+
+	if err != nil {
+		if *pzErr != nil {
+			C.sqlite3_free(unsafe.Pointer(*pzErr))
+		}
+		*pzErr = mPrintf("%s", err.Error())
+		return C.SQLITE_ERROR
 	}
 
 	if len(res.Used) != len(csts) {
