@@ -535,7 +535,9 @@ func goVBestIndex(pVTab unsafe.Pointer, icp unsafe.Pointer, pzErr **C.char) C.in
 	vt := lookupHandle(pVTab).(*sqliteVTab)
 	info := (*C.sqlite3_index_info)(icp)
 	csts := constraints(info)
-	res, err := vt.vTab.BestIndex(csts, orderBys(info))
+	res, err := vt.vTab.BestIndex(csts, orderBys(info), IndexInformation{
+		ColUsed: uint64(info.colUsed),
+	})
 	if err == ErrConstraint {
 		return C.int(ErrConstraint)
 	}
@@ -825,11 +827,15 @@ type VTabTransaction interface {
 	Rollback() error
 }
 
+type IndexInformation struct {
+	ColUsed uint64
+}
+
 // VTab describes a particular instance of the virtual table.
 // See: http://sqlite.org/c3ref/vtab.html
 type VTab interface {
 	// http://sqlite.org/vtab.html#xbestindex
-	BestIndex([]InfoConstraint, []InfoOrderBy) (*IndexResult, error)
+	BestIndex([]InfoConstraint, []InfoOrderBy, IndexInformation) (*IndexResult, error)
 	// http://sqlite.org/vtab.html#xdisconnect
 	Disconnect() error
 	// http://sqlite.org/vtab.html#sqlite3_module.xDestroy
