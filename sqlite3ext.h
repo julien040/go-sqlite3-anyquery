@@ -1,4 +1,3 @@
-#ifndef USE_LIBSQLITE3
 /*
 ** 2006 June 7
 **
@@ -18,11 +17,7 @@
 */
 #ifndef SQLITE3EXT_H
 #define SQLITE3EXT_H
-#include "sqlite3-binding.h"
-#ifdef __clang__
-#define assert(condition) ((void)0)
-#endif
-
+#include "sqlite3.h"
 
 /*
 ** The following structure holds pointers to all of the SQLite API
@@ -722,7 +717,3 @@ typedef int (*sqlite3_loadext_entry)(
 #endif
 
 #endif /* SQLITE3EXT_H */
-#else // USE_LIBSQLITE3
- // If users really want to link against the system sqlite3 we
-// need to make this file a noop.
- #endif
